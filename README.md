@@ -53,6 +53,12 @@ plot_pitches(gaa_pitches)
 
 The pitch location data is sourced from the [GAA Pitch Finder](https://gaapitchfinder.com) project by Ryan McGuinness. The dataset is licensed under Creative Commons Attribution 4.0 International License (CC BY 4.0).
 
+The package contains a snapshot of this dataset in `data/gaa_pitches.rda`. It is
+bundled at build time and is not fetched from the internet when the package is
+installed or used, so package functions work offline. A weekly automated check
+downloads the upstream CSV and proposes a pull request when the bundled
+snapshot changes.
+
 ## License
 
 The package code is licensed under the MIT License. The dataset is licensed under CC BY 4.0.

@@ -1,0 +1,81 @@
+name: Sync bundled GAA data
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Install package dependencies
+        uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          dependencies: "all"
+          extra-packages: any::rcmdcheck
+
+      - name: Record current bundled record count
+        id: before
+        shell: bash
+        run: |
+          count=$(Rscript -e 'load("data/gaa_pitches.rda"); cat(nrow(gaa_pitches))')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+
+      - name: Download and rebuild bundled data
+        id: refresh
+        shell: bash
+        run: |
+          output_file=$(mktemp)
+          Rscript data-raw/prepare_data.R | tee "$output_file"
+          source_md5=$(sed -n 's/^Source CSV MD5: //p' "$output_file")
+          test -n "$source_md5"
+          echo "source_md5=$source_md5" >> "$GITHUB_OUTPUT"
+          rm -f "$output_file"
+
+      - name: Record generated data and detect changes
+        id: data
+        shell: bash
+        run: |
+          count=$(Rscript -e 'load("data/gaa_pitches.rda"); cat(nrow(gaa_pitches))')
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          if git diff --quiet -- data/gaa_pitches.rda; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run R CMD check
+        uses: r-lib/actions/check-r-package@v2
+
+      - name: Open pull request for changed data
+        if: steps.data.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/update-gaa-data
+          delete-branch: true
+          add-paths: data/gaa_pitches.rda
+          commit-message: Update bundled GAA pitch dataset
+          title: Update bundled GAA pitch dataset
+          body: |
+            This automated PR updates the bundled snapshot of the GAA Pitch Finder dataset.
+
+            - Source: https://raw.githubusercontent.com/ryanmcg2203/gaapitchfinder/main/gaapitchfinder_data.csv
+            - Source CSV MD5: ${{ steps.refresh.outputs.source_md5 }}
+            - Bundled records before: ${{ steps.before.outputs.count }}
+            - Bundled records after: ${{ steps.data.outputs.count }}
+
+            The package remains offline after installation; this PR updates only `data/gaa_pitches.rda`.
